@@ -1,106 +1,50 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Green Tracker</title>
+let src = new cv.Mat();
+let hsv = new cv.Mat();
+let mask = new cv.Mat();
+let contours = new cv.MatVector();
+let hierarchy = new cv.Mat();
 
-  <style>
-    body { margin:0; overflow:hidden; background:black; }
-    canvas { position:absolute; top:0; left:0; }
-  </style>
+function process() {
 
-  <script src="https://docs.opencv.org/4.x/opencv.js"></script>
-</head>
-<body>
+  if (video.readyState === 4) {
 
-<video id="video" autoplay playsinline style="display:none;"></video>
-<canvas id="canvas"></canvas>
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-<script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+    src = cv.imread(canvas);
 
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener("resize", resize);
+    cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+    cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-// Start camera safely
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
-}).then(stream => {
-  video.srcObject = stream;
-}).catch(err => {
-  alert("Camera error: " + err);
-});
+    let lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35,70,70,0]);
+    let upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [85,255,255,255]);
 
-// WAIT until OpenCV is FULLY ready
-function waitForCV() {
-  if (typeof cv !== "undefined" && cv.Mat) {
-    startTracking();
-  } else {
-    setTimeout(waitForCV, 100);
-  }
-}
+    cv.inRange(hsv, lower, upper, mask);
 
-function startTracking() {
+    cv.findContours(mask, contours, hierarchy,
+                    cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-  function process() {
+    let maxArea = 0;
+    let best = null;
 
-    if (video.readyState === 4) {
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      let src = cv.imread(canvas);
-      let hsv = new cv.Mat();
-      let mask = new cv.Mat();
-
-      cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-      cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-
-      let lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 70, 70, 0]);
-      let upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [85, 255, 255, 255]);
-
-      cv.inRange(hsv, lower, upper, mask);
-
-      let contours = new cv.MatVector();
-      let hierarchy = new cv.Mat();
-
-      cv.findContours(mask, contours, hierarchy,
-                      cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-      let maxArea = 0;
-      let best = null;
-
-      for (let i = 0; i < contours.size(); i++) {
-        let cnt = contours.get(i);
-        let area = cv.contourArea(cnt);
-        if (area > maxArea) {
-          maxArea = area;
-          best = cv.boundingRect(cnt);
-        }
+    for (let i = 0; i < contours.size(); i++) {
+      let cnt = contours.get(i);
+      let area = cv.contourArea(cnt);
+      if (area > maxArea) {
+        maxArea = area;
+        best = cv.boundingRect(cnt);
       }
-
-      if (best && maxArea > 1000) {
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 6;
-        ctx.strokeRect(best.x, best.y, best.width, best.height);
-      }
-
-      src.delete(); hsv.delete(); mask.delete();
-      contours.delete(); hierarchy.delete();
     }
 
-    requestAnimationFrame(process);
+    if (best && maxArea > 1000) {
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(best.x, best.y, best.width, best.height);
+    }
+
+    lower.delete();
+    upper.delete();
+    src.delete();
   }
 
-  process();
+  requestAnimationFrame(process);
 }
-
-waitForCV();
-</script>
-</body>
-</html>
