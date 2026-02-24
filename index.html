@@ -1,21 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Green Ball Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <title>Green Tracker</title>
+
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: black;
-    }
-    canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
+    body { margin:0; overflow:hidden; background:black; }
+    canvas { position:absolute; top:0; left:0; }
   </style>
+
+  <script src="https://docs.opencv.org/4.x/opencv.js"></script>
 </head>
 <body>
 
@@ -27,29 +21,36 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-// Fullscreen canvas
-function resizeCanvas() {
+function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
+resize();
+window.addEventListener("resize", resize);
 
-// Start camera (rear camera on mobile)
+// Start camera safely
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { exact: "environment" } }
+  video: { facingMode: "environment" }
 }).then(stream => {
   video.srcObject = stream;
-}).catch(() => {
-  alert("Camera access failed");
+}).catch(err => {
+  alert("Camera error: " + err);
 });
 
-// Wait until OpenCV fully loads
-cv['onRuntimeInitialized'] = () => {
+// WAIT until OpenCV is FULLY ready
+function waitForCV() {
+  if (typeof cv !== "undefined" && cv.Mat) {
+    startTracking();
+  } else {
+    setTimeout(waitForCV, 100);
+  }
+}
 
-  function processFrame() {
+function startTracking() {
 
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+  function process() {
+
+    if (video.readyState === 4) {
 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -60,43 +61,46 @@ cv['onRuntimeInitialized'] = () => {
       cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
       cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-      let lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 50, 50, 0]);
+      let lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 70, 70, 0]);
       let upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [85, 255, 255, 255]);
 
       cv.inRange(hsv, lower, upper, mask);
 
       let contours = new cv.MatVector();
       let hierarchy = new cv.Mat();
-      cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      cv.findContours(mask, contours, hierarchy,
+                      cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
       let maxArea = 0;
-      let bestRect = null;
+      let best = null;
 
       for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt);
-
         if (area > maxArea) {
           maxArea = area;
-          bestRect = cv.boundingRect(cnt);
+          best = cv.boundingRect(cnt);
         }
       }
 
-      if (bestRect && maxArea > 800) {
+      if (best && maxArea > 1000) {
         ctx.strokeStyle = "lime";
-        ctx.lineWidth = 5;
-        ctx.strokeRect(bestRect.x, bestRect.y, bestRect.width, bestRect.height);
+        ctx.lineWidth = 6;
+        ctx.strokeRect(best.x, best.y, best.width, best.height);
       }
 
       src.delete(); hsv.delete(); mask.delete();
       contours.delete(); hierarchy.delete();
     }
 
-    requestAnimationFrame(processFrame);
+    requestAnimationFrame(process);
   }
 
-  requestAnimationFrame(processFrame);
-};
+  process();
+}
+
+waitForCV();
 </script>
 
 </body>
