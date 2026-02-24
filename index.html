@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Green Ball Tracker</title>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <style>
+    body { text-align:center; background:black; color:white; }
+    video, canvas { border:2px solid lime; }
+  </style>
+</head>
+<body>
+
+<h2>Green Ball Tracker</h2>
+
+<video id="video" autoplay playsinline width="400" height="300"></video>
+<canvas id="canvas" width="400" height="300"></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// Start camera
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+.then(stream => {
+  video.srcObject = stream;
+});
+
+// Wait for OpenCV
+cv['onRuntimeInitialized'] = () => {
+  function processFrame() {
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    let src = cv.imread(canvas);
+    let hsv = new cv.Mat();
+    let mask = new cv.Mat();
+
+    cv.cvtColor(src, hsv, cv.COLOR_RGB2HSV);
+
+    let lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 50, 50, 0]);
+    let upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [85, 255, 255, 255]);
+
+    cv.inRange(hsv, lower, upper, mask);
+
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let maxArea = 0;
+    let bestRect = null;
+
+    for (let i = 0; i < contours.size(); i++) {
+      let cnt = contours.get(i);
+      let area = cv.contourArea(cnt);
+
+      if (area > maxArea) {
+        maxArea = area;
+        bestRect = cv.boundingRect(cnt);
+      }
+    }
+
+    if (bestRect && maxArea > 500) {
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(bestRect.x, bestRect.y, bestRect.width, bestRect.height);
+    }
+
+    src.delete(); hsv.delete(); mask.delete();
+    contours.delete(); hierarchy.delete();
+
+    requestAnimationFrame(processFrame);
+  }
+
+  requestAnimationFrame(processFrame);
+};
+</script>
+
+</body>
+</html>
