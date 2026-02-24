@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Green Ball Tracker</title>
-
-  <style>
-    body { margin:0; overflow:hidden; background:black; }
-    canvas { position:absolute; top:0; left:0; }
-  </style>
-
-  <script src="https://docs.opencv.org/4.x/opencv.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Green Ball Traffic Control</title>
+<style>
+body { margin:0; overflow:hidden; background:black; }
+video, canvas {
+  position:absolute;
+  width:100vw;
+  height:100vh;
+  object-fit:cover;
+}
+</style>
 </head>
 <body>
 
-<video id="video" autoplay playsinline style="display:none;"></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
 <script>
@@ -21,93 +23,53 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-// Lower resolution for stability
-const WIDTH = 320;
-const HEIGHT = 240;
+// 🔴 PUT YOUR ESP32 IP HERE
+const ESP_IP = "http://192.168.1.XXX/";
 
-canvas.width = WIDTH;
-canvas.height = HEIGHT;
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+.then(stream => video.srcObject = stream);
 
-// Start rear camera
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment", width: WIDTH, height: HEIGHT }
-}).then(stream => {
-  video.srcObject = stream;
-}).catch(err => {
-  alert("Camera error: " + err);
+video.addEventListener("loadeddata", () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  track();
 });
 
-// Wait until OpenCV fully loads
-function waitForCV() {
-  if (typeof cv !== "undefined" && cv.Mat) {
-    startTracking();
-  } else {
-    setTimeout(waitForCV, 100);
+let lastCommand = "";
+
+function sendCommand(cmd){
+  if(cmd !== lastCommand){
+    fetch(ESP_IP + cmd).catch(()=>{});
+    lastCommand = cmd;
   }
 }
 
-function startTracking() {
+function track(){
+  ctx.drawImage(video,0,0);
 
-  let src = new cv.Mat(HEIGHT, WIDTH, cv.CV_8UC4);
-  let hsv = new cv.Mat();
-  let mask = new cv.Mat();
-  let contours = new cv.MatVector();
-  let hierarchy = new cv.Mat();
+  let frame = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = frame.data;
 
-  let lower = new cv.Mat(HEIGHT, WIDTH, cv.CV_8UC3, [35, 70, 70, 0]);
-  let upper = new cv.Mat(HEIGHT, WIDTH, cv.CV_8UC3, [85, 255, 255, 255]);
+  let left=0, center=0, right=0;
 
-  function process() {
+  for(let i=0;i<data.length;i+=4){
+    let r=data[i], g=data[i+1], b=data[i+2];
 
-    if (video.readyState === 4) {
+    if(g > 150 && r < 100 && b < 100){
+      let x = (i/4) % canvas.width;
 
-      ctx.drawImage(video, 0, 0, WIDTH, HEIGHT);
-
-      src.data.set(ctx.getImageData(0, 0, WIDTH, HEIGHT).data);
-
-      cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-      cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-
-      cv.inRange(hsv, lower, upper, mask);
-
-      cv.findContours(mask, contours, hierarchy,
-                      cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-      let maxArea = 0;
-      let bestRect = null;
-
-      for (let i = 0; i < contours.size(); i++) {
-        let cnt = contours.get(i);
-        let area = cv.contourArea(cnt);
-
-        if (area > maxArea) {
-          maxArea = area;
-          bestRect = cv.boundingRect(cnt);
-        }
-      }
-
-      ctx.drawImage(video, 0, 0, WIDTH, HEIGHT);
-
-      if (bestRect && maxArea > 800) {
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 4;
-        ctx.strokeRect(bestRect.x, bestRect.y,
-                       bestRect.width, bestRect.height);
-      }
-
-      contours.delete();
-      hierarchy.delete();
-      contours = new cv.MatVector();
-      hierarchy = new cv.Mat();
+      if(x < canvas.width/3) left++;
+      else if(x < 2*canvas.width/3) center++;
+      else right++;
     }
-
-    requestAnimationFrame(process);
   }
 
-  process();
-}
+  if(left>center && left>right) sendCommand("LEFT");
+  else if(right>left && right>center) sendCommand("RIGHT");
+  else if(center>left && center>right) sendCommand("CENTER");
 
-waitForCV();
+  requestAnimationFrame(track);
+}
 </script>
 
 </body>
